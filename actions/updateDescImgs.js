@@ -27,7 +27,7 @@ async function updateDescImgs(projectName, skuList) {
     const DEVICE_SCALE_FACTOR = 2.5;
     await page.setViewport({ width: 768, height: 1080, deviceScaleFactor: DEVICE_SCALE_FACTOR });
 
-    const sendStatusUpdate = async (eventIndex, sku) => {
+    const sendStatusUpdate = async (eventIndex, sku, progressTarget) => {
         console.log(`update at step ${eventIndex}`);
         try {
             await fetch('https://trendyadventurer.wixstudio.io/tb-redo/_functions/updateDescImgs_statusUpdate', {
@@ -35,10 +35,25 @@ async function updateDescImgs(projectName, skuList) {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ eventIndex, sku })
+                body: JSON.stringify({ eventIndex, sku, progressTarget })
             });
         } catch (error) {
             console.error('Error sending status update:', error);
+        }
+    };
+
+    const sendURLsUpdate = async (sku, urls) => {
+        console.log(`Sending URLs update for SKU: ${sku}`);
+        try {
+            await fetch('https://trendyadventurer.wixstudio.io/tb-redo/_functions/updateDescImgs_urlsUpdate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ sku, urls })
+            });
+        } catch (error) {
+            console.error('Error sending URLs update:', error);
         }
     };
 
@@ -77,12 +92,14 @@ async function updateDescImgs(projectName, skuList) {
 
         for (let i = 0; i < skuList.length; i++) {
             const sku = skuList[i];
+
+            // Locate and interact with the input field
             let eventIndexCounter = 0;
-            await sendStatusUpdate(++eventIndexCounter, sku); // Log the Processing SKU
+            await sendStatusUpdate(++eventIndexCounter, sku, 5); // Log the Processing SKU
             console.log(`Processing SKU: ${sku}`);
             const inputHandle = await page.$(`#${selectors.searchInput}`);
             if (inputHandle) {
-                await sendStatusUpdate(++eventIndexCounter, sku); // Locate and Interact with the Input Field
+                await sendStatusUpdate(++eventIndexCounter, sku, 5); // Locate and Interact with the Input Field
                 await page.waitForSelector(`#${selectors.searchInput}`, { visible: true, timeout: 30000 });
                 await page.focus(`#${selectors.searchInput}`);
                 await page.click(`#${selectors.searchInput}`);
@@ -97,7 +114,7 @@ async function updateDescImgs(projectName, skuList) {
                 await page.keyboard.type(sku);
                 await page.keyboard.press('Enter');
 
-                await new Promise(resolve => setTimeout(resolve, 2000));  // Adjust the timeout as necessary
+                await new Promise(resolve => setTimeout(resolve, 5000));  // Adjust the timeout as necessary
 
                 // Check if the specified sections are visible dynamically
                 const visibleSections = await page.evaluate((sections) => {
@@ -107,31 +124,59 @@ async function updateDescImgs(projectName, skuList) {
 
                         const style = window.getComputedStyle(element);
                         const isVisible = style.display !== 'none' &&
-                                        style.visibility !== 'hidden' &&
-                                        style.opacity !== '0' &&
-                                        element.offsetHeight > 0 &&
-                                        element.offsetWidth > 0;
+                                          style.visibility !== 'hidden' &&
+                                          style.opacity !== '0' &&
+                                          element.offsetHeight > 0 &&
+                                          element.offsetWidth > 0;
 
                         return isVisible;
                     });
                 }, selectors.sections);
 
                 if (visibleSections.length > 0) {
-                    // Wait for page assets to load after SKU input
-                    await sendStatusUpdate(++eventIndexCounter, sku); // Wait for Page Assets to Load
-                    await waitForImagesToLoad(page, selectors.pageAssets.map(asset => `#${asset} img`));
-                    await new Promise(resolve => setTimeout(resolve, 4000));  // Adjust the timeout as necessary
+                    // Calculate the total number of status updates based on visible sections
+                    const totalStatusUpdates = (
+                        1 // Processing SKU
+                        + 1 // Locate and Interact with Input Field
+                        + 1 // Wait for Page Assets to Load
+                        + visibleSections.length // Process Each Visible Section
+                        + 1 // Input Google Drive URLs into the Page
+                    );
+
+                    // Check which pageAssets are present
+                    const presentPageAssets = await page.evaluate((assets) => {
+                        return assets.filter(selector => {
+                            const element = document.querySelector(selector);
+                            if (!element) return false;
+
+                            const style = window.getComputedStyle(element);
+                            const isVisible = style.display !== 'none' &&
+                                              style.visibility !== 'hidden' &&
+                                              style.opacity !== '0' &&
+                                              element.offsetHeight > 0 &&
+                                              element.offsetWidth > 0;
+
+                            return isVisible;
+                        });
+                    }, selectors.pageAssets.map(asset => `#${asset} img`));
+
+                    if (presentPageAssets.length > 0) {
+                        // Wait for the present page assets to load
+                        await sendStatusUpdate(++eventIndexCounter, sku, totalStatusUpdates); // Wait for Page Assets to Load
+                        await waitForImagesToLoad(page, presentPageAssets);
+                        await new Promise(resolve => setTimeout(resolve, 4000));  // Adjust the timeout as necessary
+                    }
 
                     const sectionURLs = [];
                     for (const section of visibleSections) {
                         try {
                             // Capture screenshot of the element directly
-                            await sendStatusUpdate(++eventIndexCounter, sku); // Capture Screenshot of the Element
+                            await sendStatusUpdate(++eventIndexCounter, sku, totalStatusUpdates); // Capture Screenshot of the Element
                             const elementHandle = await page.$(`#${section}`);
                             const screenshotBuffer = await elementHandle.screenshot();
 
                             // Process image with JIMP (crop and watermark) using the element screenshot
-                            await sendStatusUpdate(++eventIndexCounter, sku); // Process Each Section
+                            await sendStatusUpdate(++eventIndexCounter, sku, totalStatusUpdates); // Process Each Section
                             const { buffer: processedImageBuffer, width, height } = await processImage(
                                 screenshotBuffer,
                                 selectors.watermarkUrl // Use the URL for the watermark
@@ -148,54 +193,13 @@ async function updateDescImgs(projectName, skuList) {
                     }
                     console.log(`sectionURLs: `, sectionURLs);
 
-                    // Input Google Drive URLs into the page
-                    await sendStatusUpdate(++eventIndexCounter, sku); // Input Google Drive URLs into the Page
+                    // Send URLs to the new HTTP endpoint
+                    const urls = sectionURLs.reduce((acc, { section, googleDriveLink }, index) => {
+                        acc[index] = googleDriveLink;
+                        return acc;
+                    }, {});
 
-                    for (let j = 0; j < selectors.gURL_inputs.length; j++) {
-                        const inputSelector = `#${selectors.gURL_inputs[j]}`;
-
-                        await new Promise(resolve => setTimeout(resolve, 2000));  // Adjust the timeout as necessary
-
-                        const inputVisible = await page.evaluate((selector) => {
-                            const element = document.querySelector(selector);
-                            if (!element) return false;
-
-                            const style = window.getComputedStyle(element);
-                            const isVisible = style.display !== 'none' &&
-                                            style.visibility !== 'hidden' &&
-                                            style.opacity !== '0' &&
-                                            element.offsetHeight > 0 &&
-                                            element.offsetWidth > 0;
-
-                            return isVisible;
-                        }, inputSelector);
-
-                        console.log(`input ${selectors.gURL_inputs[j]} seems to be visible? `, inputVisible);
-
-                        if (inputVisible) {
-                            const sectionIndex = sectionURLs.findIndex(urlObj => urlObj.section === selectors.sections[j]);
-                            if (sectionIndex !== -1) {
-                                const gURL = sectionURLs[sectionIndex].googleDriveLink; // Match section with its URL
-                                await page.waitForSelector(inputSelector, { visible: true, timeout: 30000 });
-                                await page.focus(inputSelector);
-                                await page.click(inputSelector);
-                                const inputValueBefore = await page.evaluate((selector) => {
-                                    return document.querySelector(selector).value;
-                                }, inputSelector);
-                                if (inputValueBefore !== "") {
-                                    await page.evaluate((selector) => {
-                                        document.querySelector(selector).value = '';
-                                    }, inputSelector);
-                                }
-                                await page.keyboard.type(gURL);
-                                await page.mouse.move(0, 0); // Move mouse away to trigger onChange
-                                await page.evaluate((selector) => {
-                                    const input = document.querySelector(selector);
-                                    input.blur(); // Explicitly trigger the blur event
-                                }, inputSelector);
-                            }
-                        }
-                    }
+                    await sendURLsUpdate(sku, urls);
                 }
             }
             // Explicitly trigger garbage collection after each SKU is processed
