@@ -4,8 +4,8 @@ const parentProjectSelectors = {
       dropdown: 'comp-lz88ome0',
       optionText: 'Lady Grayy', 
       searchInput: 'input_comp-lz88omfn4',
-      pageAssets: ["img-comp-lz88omfy4","img-comp-lz88omdl4","img-comp-lz88omdt1","img-comp-lz88omd95","img-comp-lz88omet8","img-comp-lz88omf33"],
-      sections: ["comp-lz88omfx5","comp-lz88omd011","comp-lz88ome9"],
+      pageAssets: ["img-comp-m4j96g43","img-comp-lz88omfy4","img-comp-lz88omdl4","img-comp-lz88omdt1","img-comp-lz88omd95","img-comp-lz88omet8","img-comp-lz88omf33"],
+      sections: ["comp-m4j96g39","comp-lz88omfx5","comp-lz88omd011","comp-lz88ome9"],
       googleDriveConfig: {
           "type": "service_account",
           "project_id": "descimgup",
